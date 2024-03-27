@@ -1,0 +1,46 @@
+version: "3.8"
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack_main
+    environment:
+      - LS_LOG=trace
+      - GATEWAY_SERVER=twisted
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - "./init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"  # ready hook
+    healthcheck:
+      test: ["CMD", "awslocal", "s3api", "head-bucket", "--bucket", "test-influx"]
+      interval: 1m30s
+      timeout: 1s
+      retries: 3
+      start_period: 10s
+      start_interval: 1s
+
+  influxdb:
+    image: influxdb3:test
+    command: "serve -v --object-store s3 --bucket test-influx"
+    depends_on:
+        localstack:
+          condition: service_healthy
+    environment:
+      - "AWS_ENDPOINT=http://localstack:4566"
+      - "AWS_ACCESS_KEY_ID=test"
+      - "AWS_SECRET_ACCESS_KEY=test"
+      - "AWS_BUCKET=test-influx"
+      - "AWS_REGION=us-east-1"
+      - "AWS_ALLOW_HTTP=true"  # `object_store` prevents http by default
+      - "INFLUXDB3_SEGMENT_DURATION=1m"  # allows to quickly see data dumped to S3
+      - "INFLUXDB3_RAM_POOL_DATA_BYTES=10%"  # same as above
+    volumes:
+      - "./seed.txt:/home/influxdb3/seed.txt"
+
+  filestash:
+    container_name: filestash
+    image: machines/filestash
+    restart: always
+    environment:
+    - APPLICATION_URL=
+    ports:
+    - "8334:8334"
